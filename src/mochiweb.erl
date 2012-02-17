@@ -9,6 +9,9 @@
 -export([new_request/1, new_response/1]).
 -export([all_loaded/0, all_loaded/1, reload/0]).
 -export([ensure_started/1]).
+-export([init_hook_modules/1, get_hook_modules/0, terminate_hook_modules/0]).
+
+-define(SAVE_HOOK_MODULES, mochiweb_hook_modules).
 
 reload() ->
     [c:l(Module) || Module <- all_loaded()].
@@ -32,6 +35,39 @@ all_loaded(Base) ->
         end,
     lists:foldl(F, [], code:all_loaded()).
 
+init_hook_modules(undefined) ->
+	ok;
+init_hook_modules([]) ->
+	ok;
+init_hook_modules([H|T]) ->
+	case code:ensure_loaded(H) of
+		{module, Module} ->
+			Loaded = case erlang:get(?SAVE_HOOK_MODULES) of
+				undefined ->
+					[];
+				Cached ->
+					Cached
+			end,
+			erlang:put(?SAVE_HOOK_MODULES, [Module | Loaded]),
+			Module:init(),
+			init_hook_modules(T);
+		Error ->
+			Error
+	end.
+
+get_hook_modules() ->
+	erlang:get(?SAVE_HOOK_MODULES).
+
+terminate_hook_modules() ->
+	terminate_hook_modules(erlang:get(?SAVE_HOOK_MODULES)).
+
+terminate_hook_modules([]) ->
+	ok;
+terminate_hook_modules(undefined) ->
+	ok;
+terminate_hook_modules([Module|T]) ->
+	Module:terminate(),
+	terminate_hook_modules(T).
 
 %% @spec new_request({Socket, Request, Headers}) -> MochiWebRequest
 %% @doc Return a mochiweb_request data structure.
