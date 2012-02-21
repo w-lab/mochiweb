@@ -9,7 +9,10 @@
 -export([new_request/1, new_response/1]).
 -export([all_loaded/0, all_loaded/1, reload/0]).
 -export([ensure_started/1]).
--export([init_hook_modules/1, get_hook_modules/0, terminate_hook_modules/0]).
+-export([init_hook_modules/1, set_hook_modules/1, get_hook_modules/0,
+         on_new_request_hook_modules/1, on_new_request_hook_modules/2,
+         on_respond_hook_modules/3, on_respond_hook_modules/4,
+         terminate_hook_modules/0, terminate_hook_modules/1]).
 
 -define(SAVE_HOOK_MODULES, mochiweb_hook_modules).
 
@@ -49,14 +52,55 @@ init_hook_modules([H|T]) ->
 					Cached
 			end,
 			erlang:put(?SAVE_HOOK_MODULES, [Module | Loaded]),
-			Module:init(),
-			init_hook_modules(T);
+			case Module:init() of
+                            ok ->
+			        init_hook_modules(T);
+                            InitError ->
+                                InitError
+                        end;
 		Error ->
 			Error
 	end.
 
+set_hook_modules(L) when is_list(L) ->
+        ModAtoms = lists:map(fun(Name) -> 
+            case is_list(Name) of
+                true ->
+                    list_to_atom(Name);
+                _Else ->
+                    Name
+            end
+         end, L),
+	erlang:put(?SAVE_HOOK_MODULES, ModAtoms);
+set_hook_modules(_L) ->
+	erlang:put(?SAVE_HOOK_MODULES, []).
+
 get_hook_modules() ->
 	erlang:get(?SAVE_HOOK_MODULES).
+
+on_new_request_hook_modules(Req) ->
+    on_new_request_hook_modules(Req, get_hook_modules()).
+on_new_request_hook_modules(_Req, []) ->
+    none;
+on_new_request_hook_modules(_Req, undefined) ->
+    none;
+on_new_request_hook_modules(Req, [Module|T]) ->
+    case Module:on_new_request(Req) of
+        done ->
+            done;
+        _Other ->
+            on_new_request_hook_modules(Req,T)
+    end.
+
+on_respond_hook_modules(Req, ResponseHeaders, Body) ->
+    on_respond_hook_modules(Req, ResponseHeaders, Body, get_hook_modules()).
+on_respond_hook_modules(_Req, ResponseHeaders, _Body, []) ->
+    ResponseHeaders;
+on_respond_hook_modules(_Req, ResponseHeaders, _Body, undefined) ->
+    ResponseHeaders;
+on_respond_hook_modules(Req, ResponseHeaders, Body, [Module|T]) ->
+    NewResHead = Module:on_respond(Req, ResponseHeaders, Body),
+    on_respond_hook_modules(Req, NewResHead, Body, T).
 
 terminate_hook_modules() ->
 	terminate_hook_modules(erlang:get(?SAVE_HOOK_MODULES)).

@@ -8,10 +8,16 @@
 
 -include("internal.hrl").
 
--export([start_link/3, init/3]).
+-export([start_link/4, init/4, init/3]).
 
-start_link(Server, Listen, Loop) ->
-    proc_lib:spawn_link(?MODULE, init, [Server, Listen, Loop]).
+start_link(Server, Listen, Loop, HookMods) ->
+    proc_lib:spawn_link(?MODULE, init, [Server, Listen, Loop, HookMods]).
+
+init(Server, Listen, Loop, HookMods) ->
+    % do at only first time
+    %io:format("[acc] mod:~p\n",[HookMods]),
+    mochiweb:set_hook_modules(HookMods),
+    init(Server, Listen, Loop).
 
 init(Server, Listen, Loop) ->
     T1 = now(),

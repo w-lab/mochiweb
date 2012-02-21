@@ -18,6 +18,7 @@
         {port,
          loop,
          name=undefined,
+         hook_modules=[],
          %% NOTE: This is currently ignored.
          max=2048,
          ip=any,
@@ -34,9 +35,11 @@
 -define(is_old_state(State), not is_record(State, mochiweb_socket_server)).
 
 start_link(Options) ->
+    io:format("options in sock:~p\n", [Options]),
     start_server(start_link, parse_options(Options)).
 
 start(Options) ->
+    io:format("options in sock:~p\n", [Options]),
     case lists:keytake(link, 1, Options) of
         {value, {_Key, false}, Options1} ->
             start_server(start, parse_options(Options1));
@@ -80,6 +83,8 @@ parse_options(Options) ->
 
 parse_options([], State) ->
     State;
+parse_options([{hook_modules, L} | Rest], State) when is_list(L) ->
+    parse_options(Rest, State#mochiweb_socket_server{hook_modules=L});
 parse_options([{name, L} | Rest], State) when is_list(L) ->
     Name = {local, list_to_atom(L)},
     parse_options(Rest, State#mochiweb_socket_server{name=Name});
@@ -159,8 +164,9 @@ ipv6_supported() ->
             false
     end.
 
-init(State=#mochiweb_socket_server{ip=Ip, port=Port, backlog=Backlog, nodelay=NoDelay}) ->
+init(State=#mochiweb_socket_server{ip=Ip, port=Port, backlog=Backlog, nodelay=NoDelay, hook_modules=HookMods}) ->
     process_flag(trap_exit, true),
+    io:format("state:~p\n", [State]),
     BaseOpts = [binary,
                 {reuseaddr, true},
                 {packet, 0},
@@ -179,14 +185,21 @@ init(State=#mochiweb_socket_server{ip=Ip, port=Port, backlog=Backlog, nodelay=No
         {_, _, _, _, _, _, _, _} -> % IPv6
             [inet6, {ip, Ip} | BaseOpts]
     end,
-    listen(Port, Opts, State).
+    io:format("hook module:~p\n", [HookMods]),
+    case mochiweb:init_hook_modules(HookMods) of
+        ok ->
+            listen(Port, Opts, State);
+        {error, Reason} ->
+            {stop, Reason}
+    end.
 
 new_acceptor_pool(Listen,
                   State=#mochiweb_socket_server{acceptor_pool=Pool,
                                                 acceptor_pool_size=Size,
+                                                hook_modules=HookMods,
                                                 loop=Loop}) ->
     F = fun (_, S) ->
-                Pid = mochiweb_acceptor:start_link(self(), Listen, Loop),
+                Pid = mochiweb_acceptor:start_link(self(), Listen, Loop, HookMods),
                 sets:add_element(Pid, S)
         end,
     Pool1 = lists:foldl(F, Pool, lists:seq(1, Size)),
@@ -260,8 +273,12 @@ handle_cast({set, profile_fun, ProfileFun}, State) ->
              end,
     {noreply, State1};
 handle_cast(stop, State) ->
-    {stop, normal, State}.
-
+    case mochiweb:terminate_hook_modules() of
+        ok ->
+            {stop, normal, State};
+        {error, Reason} ->
+            {stop, Reason, State}
+    end.
 
 terminate(Reason, State) when ?is_old_state(State) ->
     terminate(Reason, upgrade_state(State));
@@ -274,11 +291,12 @@ code_change(_OldVsn, State, _Extra) ->
 recycle_acceptor(Pid, State=#mochiweb_socket_server{
                         acceptor_pool=Pool,
                         listen=Listen,
+                        hook_modules=HookMods,
                         loop=Loop,
                         active_sockets=ActiveSockets}) ->
     case sets:is_element(Pid, Pool) of
         true ->
-            Acceptor = mochiweb_acceptor:start_link(self(), Listen, Loop),
+            Acceptor = mochiweb_acceptor:start_link(self(), Listen, Loop, HookMods),
             Pool1 = sets:add_element(Acceptor, sets:del_element(Pid, Pool)),
             State#mochiweb_socket_server{acceptor_pool=Pool1};
         false ->

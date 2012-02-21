@@ -87,7 +87,17 @@ headers(Socket, Request, Headers, Body, HeaderCount) ->
     receive
         {Protocol, _, http_eoh} when Protocol == http orelse Protocol == ssl ->
             Req = new_request(Socket, Request, Headers),
-            call_body(Body, Req),
+            %io:format("req:~p mod:~p\n", [Req, mochiweb:get_hook_modules()]),
+            catch case mochiweb:on_new_request_hook_modules(Req) of
+                done ->
+                    done; % done sending response in hook modules
+                none ->
+                    call_body(Body, Req);
+                {'EXIT',{Reason, Stack}} ->
+                    io:format("[ERR] reason:~p stack:~p\n", Reason, Stack),
+                    call_body(Body, Req)
+            end,
+            %io:format("req done.\n"),
             ?MODULE:after_response(Body, Req);
         {Protocol, _, {http_header, _, Name, _, Value}} when Protocol == http orelse Protocol == ssl ->
             headers(Socket, Request, [{Name, Value} | Headers], Body,

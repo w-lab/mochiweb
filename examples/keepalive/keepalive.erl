@@ -28,7 +28,7 @@
 -define(LOOP, {?MODULE, loop}).
 
 start(Options = [{port, _Port}]) ->
-    mochiweb_http:start([{name, ?MODULE}, {loop, ?LOOP} | Options]).
+    mochiweb_http:start([{name, ?MODULE}, {loop, ?LOOP}, {hook_modules, [mochiweb_mod_cache]} | Options]).
 
 loop(Req) ->
     Path = Req:get(path),
@@ -57,8 +57,7 @@ loop(Req) ->
         _ ->
             ok(Req, io_lib:format("some other page: ~p", [Path]))
     end,
-
-    io:format("restarting loop normally in ~p~n", [Path]),
+    %io:format("restarting loop normally in ~p~n", [Path]),
     ok.
 
 %% this is the function that's called when a message arrives.

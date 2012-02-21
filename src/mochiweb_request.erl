@@ -319,7 +319,9 @@ respond({Code, ResponseHeaders, chunked}) ->
                  end,
     start_response({Code, HResponse1});
 respond({Code, ResponseHeaders, Body}) ->
-    Response = start_response_length({Code, ResponseHeaders, iolist_size(Body)}),
+    % hook only with content-length responses
+    NewResHead = mochiweb:on_respond_hook_modules(THIS, ResponseHeaders, Body),
+    Response = start_response_length({Code, NewResHead, iolist_size(Body)}),
     case Method of
         'HEAD' ->
             ok;
