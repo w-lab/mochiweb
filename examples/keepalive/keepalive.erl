@@ -29,6 +29,7 @@
 
 start(Options = [{port, _Port}]) ->
     mochiweb_http:start([{name, ?MODULE}, {loop, ?LOOP}, {hook_modules, [mochiweb_mod_cache]} | Options]).
+    %mochiweb_http:start([{name, ?MODULE}, {loop, ?LOOP} | Options]).
 
 loop(Req) ->
     Path = Req:get(path),

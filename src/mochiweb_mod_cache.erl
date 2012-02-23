@@ -87,8 +87,7 @@ on_new_request(Req) ->
                     erlang:put(?SAVE_IS_CACHED, undefined),
                     none;
                 BinCached ->
-%                    Cached = binary_to_term(BinCached),
-                    Cached = #cache{mtime=calendar:local_time(), body=BinCached, content_type="text/plain"},
+                    Cached = binary_to_term(BinCached),
                     erlang:put(?SAVE_IS_CACHED, Cached),
                     Req:ok({Cached#cache.content_type, [{"Date", httpd_util:rfc1123_date(Cached#cache.mtime)}], Cached#cache.body}),
                     done
@@ -111,27 +110,24 @@ on_respond(Req, ResponseHeaders, Body) ->
                         HeadDate ->
                             httpd_util:convert_request_date(HeadDate)
                     end,
-%                    BinVal = term_to_binary(#cache{
-%                        mtime = ErlDate,
-%                        content_type = mochiweb_headers:get_value("Content-Type", ResponseHeaders),
-%                        body = Body
-%                    }),
-%                    ecache_server:set(Key, BinVal),
-                    ecache_server:set(Key, Body),
+                    BinVal = term_to_binary(#cache{
+                        mtime = ErlDate,
+                        content_type = mochiweb_headers:get_value("Content-Type", ResponseHeaders),
+                        body = Body
+                    }),
+                    ecache_server:set(Key, BinVal),
                     mochiweb_headers:enter("Cache-Control", "max-age=" ++ integer_to_list(?MOD_CACHE_DEF_EXPIRE), ResponseHeaders);
                 Cached ->
-%                    MT = calendar:datetime_to_gregorian_seconds(Cached#cache.mtime),
-%                    Now = calendar:datetime_to_gregorian_seconds(calendar:local_time()),
-%                    Diff = Now - MT,
-%                    case Diff > ?MOD_CACHE_DEF_EXPIRE of
-                    case false of
+                    MT = calendar:datetime_to_gregorian_seconds(Cached#cache.mtime),
+                    Now = calendar:datetime_to_gregorian_seconds(calendar:local_time()),
+                    Diff = Now - MT,
+                    case Diff > ?MOD_CACHE_DEF_EXPIRE of
                         true ->
                             %expired 
                             ecache_server:delete(Key),
                             ResponseHeaders;
                         false ->
-%                            mochiweb_headers:enter("Cache-Control", "max-age=" ++ integer_to_list(?MOD_CACHE_DEF_EXPIRE - Diff), ResponseHeaders)
-                            mochiweb_headers:enter("Cache-Control", "max-age=" ++ integer_to_list(?MOD_CACHE_DEF_EXPIRE), ResponseHeaders)
+                            mochiweb_headers:enter("Cache-Control", "max-age=" ++ integer_to_list(?MOD_CACHE_DEF_EXPIRE - Diff), ResponseHeaders)
                     end
             end,
             NewResHead
