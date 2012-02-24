@@ -8,12 +8,12 @@
 
 -export([init/0, on_new_request/1, on_respond/3, terminate/0]).
 
--define(SAVE_IS_CACHABLE, mochiweb_mod_cache_cachable).
--define(SAVE_IS_CACHED  , mochiweb_mod_cache_cached).
+%-define(SAVE_IS_CACHABLE, mochiweb_mod_cache_cachable).
+%-define(SAVE_IS_CACHED  , mochiweb_mod_cache_cached).
 -define(MOD_CACHE_DEF_EXPIRE, 60).
 
 -record(cache, {
-        mtime        = 0    :: calendar:datetime(), % from a Date header or generates from calendar:local_time
+        mtime        = 0    :: integer(), % gregorian_seconds
         content_type = ""   :: list(), % from a Content-Type header
         body         = <<>> :: binary()
 }).
@@ -68,69 +68,73 @@ is_cachable(Req) ->
             false        
     end.
 
+now2sec() ->
+    calendar:datetime_to_gregorian_seconds(calendar:universal_time()).
+
+sec2rfc1123date(Sec) ->
+%    httpd_util:rfc1123_date(calendar:universal_time_to_local_time(calendar:gregorian_seconds_to_datetime(Sec))).
+%    io:format("~p",[calendar:universal_time_to_local_time(calendar:gregorian_seconds_to_datetime(Sec))]).
+%    {{Y,M,D},{H,M,S}} = calendar:universal_time_to_local_time(calendar:gregorian_seconds_to_datetime(Sec)),
+    calendar:universal_time_to_local_time(calendar:gregorian_seconds_to_datetime(Sec)).
+%    io:format("~2.10B ~2.10B ~4.10B ~2.10B:~2.10B:~2.10B JST", [D, M, Y, H, M, S]).
+
 on_new_request(Req) ->
-    % judgement whether shold cache or not
-    Cachable = is_cachable(Req),
-    erlang:put(?SAVE_IS_CACHABLE, Cachable),
-    case Cachable of
-        false ->
+    Key = Req:get(path),
+    % check cache
+    % 1. exist
+    % 1.1 validate return done if valid, else return none
+    % 2. non
+    % return none
+    case ecache_server:get(Key) of
+        undefined ->
             none;
-        true ->
-            Key = Req:get(path),
-            % check cache
-            % 1. exist
-            % 1.1 validate return done if valid, else return none
-            % 2. non
-            % return none
-            Ret = case ecache_server:get(Key) of
-                undefined ->
-                    erlang:put(?SAVE_IS_CACHED, undefined),
-                    none;
-                BinCached ->
-                    Cached = binary_to_term(BinCached),
-                    erlang:put(?SAVE_IS_CACHED, Cached),
-                    Req:ok({Cached#cache.content_type, [{"Date", httpd_util:rfc1123_date(Cached#cache.mtime)}], Cached#cache.body}),
-                    done
+        BinCached ->
+            Cached = binary_to_term(BinCached),
+            Now = now2sec(),
+            Diff = Now - Cached#cache.mtime,
+sec2rfc1123date(Cached#cache.mtime),
+%io:format("date:~p\n",[Cached#cache.mtime]),
+%            Heads = [{"Date", sec2rfc1123date(Cached#cache.mtime)}],
+            NewHeads = case Diff > ?MOD_CACHE_DEF_EXPIRE of
+                true ->
+                    ecache_server:delete(Key),
+%                    [{"Cache-Control", "max-age=0"}|Heads];
+                    [{"Cache-Control", "max-age=0"}];
+                false ->
+%                    [{"Cache-Control", "max-age=" ++ integer_to_list(?MOD_CACHE_DEF_EXPIRE - Diff)}|Heads]
+                    [{"Cache-Control", "max-age=" ++ integer_to_list(?MOD_CACHE_DEF_EXPIRE - Diff)}]
             end,
-            Ret
+            Req:ok({Cached#cache.content_type, NewHeads, Cached#cache.body}),
+%            Req:ok({"text/plain", Cached}),
+%            Req:ok({Cached#cache.content_type, Cached#cache.body}),
+            done
     end.
 
 on_respond(Req, ResponseHeaders, Body) ->
-    Cachable = erlang:get(?SAVE_IS_CACHABLE),
+    Cachable = is_cachable(Req),
     case Cachable of
         false ->
             ResponseHeaders;
         true ->
             Key = Req:get(path),
-            NewResHead = case erlang:get(?SAVE_IS_CACHED) of
+            case mochiweb_headers:get_value("Cache-Control", ResponseHeaders) of
                 undefined ->
-                    ErlDate = case mochiweb_headers:get_value("Date", ResponseHeaders) of
+                    DateSec = case mochiweb_headers:get_value("Date", ResponseHeaders) of
                         undefined ->
-                            calendar:local_time();
+                            now2sec();
                         HeadDate ->
-                            httpd_util:convert_request_date(HeadDate)
+                            calendar:datetime_to_gregorian_seconds(httpd_util:convert_request_date(HeadDate))
                     end,
                     BinVal = term_to_binary(#cache{
-                        mtime = ErlDate,
+                        mtime = DateSec,
                         content_type = mochiweb_headers:get_value("Content-Type", ResponseHeaders),
                         body = Body
                     }),
                     ecache_server:set(Key, BinVal),
                     mochiweb_headers:enter("Cache-Control", "max-age=" ++ integer_to_list(?MOD_CACHE_DEF_EXPIRE), ResponseHeaders);
-                Cached ->
-                    MT = calendar:datetime_to_gregorian_seconds(Cached#cache.mtime),
-                    Now = calendar:datetime_to_gregorian_seconds(calendar:local_time()),
-                    Diff = Now - MT,
-                    case Diff > ?MOD_CACHE_DEF_EXPIRE of
-                        true ->
-                            %expired 
-                            ecache_server:delete(Key),
-                            ResponseHeaders;
-                        false ->
-                            mochiweb_headers:enter("Cache-Control", "max-age=" ++ integer_to_list(?MOD_CACHE_DEF_EXPIRE - Diff), ResponseHeaders)
-                    end
-            end,
-            NewResHead
+                _Else ->
+                    ResponseHeaders
+            end
     end.
 
 terminate() ->
