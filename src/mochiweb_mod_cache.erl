@@ -71,12 +71,60 @@ is_cachable(Req) ->
 now2sec() ->
     calendar:datetime_to_gregorian_seconds(calendar:universal_time()).
 
+week2rfc1123(Y, M, D) ->
+    case calendar:day_of_the_week(Y, M, D) of
+        1 ->
+            "Mon";
+        2 ->
+            "Tue";
+        3 ->
+            "Wed";
+        4 ->
+            "Thu";
+        5 ->
+            "Fri";
+        6 ->
+            "Sat";
+        7 ->
+            "Sun"
+    end.
+
+month2rfc1123(M) ->
+    case M of
+        1 ->
+            "Jan";
+        2 ->
+            "Feb";
+        3 ->
+            "Mar";
+        4 ->
+            "Apr";
+        5 ->
+            "May";
+        6 ->
+            "Jun";
+        7 ->
+            "Jul";
+        8 ->
+            "Aug";
+        9 ->
+            "Sep";
+        10 ->
+            "Oct";
+        11 ->
+            "Nov";
+        12 ->
+            "Dec"
+    end.
+
 sec2rfc1123date(Sec) ->
 %    httpd_util:rfc1123_date(calendar:universal_time_to_local_time(calendar:gregorian_seconds_to_datetime(Sec))).
 %    io:format("~p",[calendar:universal_time_to_local_time(calendar:gregorian_seconds_to_datetime(Sec))]).
-%    {{Y,M,D},{H,M,S}} = calendar:universal_time_to_local_time(calendar:gregorian_seconds_to_datetime(Sec)),
-    calendar:universal_time_to_local_time(calendar:gregorian_seconds_to_datetime(Sec)).
-%    io:format("~2.10B ~2.10B ~4.10B ~2.10B:~2.10B:~2.10B JST", [D, M, Y, H, M, S]).
+%    calendar:universal_time_to_local_time(calendar:gregorian_seconds_to_datetime(Sec)).
+    {{Y,M,D},{H,MI,S}} = calendar:gregorian_seconds_to_datetime(Sec),
+    Mon = month2rfc1123(M),
+    W = week2rfc1123(Y,M,D),
+    lists:flatten(io_lib:format("~3s, ~2.10.0B ~3s ~4.10B ~2.10.0B:~2.10.0B:~2.10.0B GMT", [W, D, Mon, Y, H, MI, S])).
 
 on_new_request(Req) ->
     Key = Req:get(path),
@@ -92,26 +140,31 @@ on_new_request(Req) ->
             Cached = binary_to_term(BinCached),
             Now = now2sec(),
             Diff = Now - Cached#cache.mtime,
-sec2rfc1123date(Cached#cache.mtime),
-%io:format("date:~p\n",[Cached#cache.mtime]),
-%            Heads = [{"Date", sec2rfc1123date(Cached#cache.mtime)}],
-            NewHeads = case Diff > ?MOD_CACHE_DEF_EXPIRE of
+            case Diff > ?MOD_CACHE_DEF_EXPIRE of
                 true ->
                     ecache_server:delete(Key),
-%                    [{"Cache-Control", "max-age=0"}|Heads];
-                    [{"Cache-Control", "max-age=0"}];
+                    none;
                 false ->
-%                    [{"Cache-Control", "max-age=" ++ integer_to_list(?MOD_CACHE_DEF_EXPIRE - Diff)}|Heads]
-                    [{"Cache-Control", "max-age=" ++ integer_to_list(?MOD_CACHE_DEF_EXPIRE - Diff)}]
-            end,
-            Req:ok({Cached#cache.content_type, NewHeads, Cached#cache.body}),
-%            Req:ok({"text/plain", Cached}),
-%            Req:ok({Cached#cache.content_type, Cached#cache.body}),
-            done
+                    LastModified = sec2rfc1123date(Cached#cache.mtime),
+                    Heads = [{"Date", LastModified}, 
+                        {"Cache-Control", "max-age=" ++ integer_to_list(?MOD_CACHE_DEF_EXPIRE - Diff)}],
+                    case Req:get_header_value("if-modified-since") of
+                        LastModified ->
+                            Req:respond({304, mochiweb_headers:make(Heads), ""});
+                        _NotConditional ->
+                            Req:ok({Cached#cache.content_type, Heads, Cached#cache.body})
+                    end,
+                    done
+            end
     end.
 
 on_respond(Req, ResponseHeaders, Body) ->
-    Cachable = is_cachable(Req),
+    Cachable = case iolist_size(Body) of
+        0 ->
+            false;
+        _HasBody ->
+            is_cachable(Req)
+    end,
     case Cachable of
         false ->
             ResponseHeaders;

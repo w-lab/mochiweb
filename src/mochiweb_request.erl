@@ -320,7 +320,15 @@ respond({Code, ResponseHeaders, chunked}) ->
     start_response({Code, HResponse1});
 respond({Code, ResponseHeaders, Body}) ->
     % hook only with content-length responses
-    NewResHead = mochiweb:on_respond_hook_modules(THIS, ResponseHeaders, Body),
+    NewResHead = case catch mochiweb:on_respond_hook_modules(THIS, ResponseHeaders, Body) of
+        {'EXIT', Error} ->
+            error_logger:error_report([{application, mochiweb},
+                 "respond hook failed",
+                 lists:flatten(io_lib:format("~p", [Error]))]),
+            exit({error, hook_failed});
+        Other ->
+            Other
+    end,
     Response = start_response_length({Code, NewResHead, iolist_size(Body)}),
     case Method of
         'HEAD' ->

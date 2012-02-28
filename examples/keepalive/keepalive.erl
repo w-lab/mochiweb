@@ -28,7 +28,7 @@
 -define(LOOP, {?MODULE, loop}).
 
 start(Options = [{port, _Port}]) ->
-    mochiweb_http:start([{name, ?MODULE}, {acceptor_pool_size, 256}, {loop, ?LOOP}, {hook_modules, [mochiweb_mod_cache]} | Options]).
+    mochiweb_http:start([{name, ?MODULE}, {acceptor_pool_size, 32}, {loop, ?LOOP}, {hook_modules, [mochiweb_mod_cache]} | Options]).
 %    mochiweb_http:start([{name, ?MODULE}, {loop, ?LOOP} | Options]).
 
 loop(Req) ->

@@ -93,9 +93,11 @@ headers(Socket, Request, Headers, Body, HeaderCount) ->
                     done; % done sending response in hook modules
                 none ->
                     call_body(Body, Req);
-                {'EXIT',{Reason, Stack}} ->
-                    io:format("[ERR] reason:~p stack:~p\n", Reason, Stack),
-                    call_body(Body, Req)
+                Other  ->
+                    error_logger:error_report([{application, mochiweb},
+                         "request hook failed",
+                          lists:flatten(io_lib:format("~p", [Other]))]),
+                    exit({error, hook_failed})
             end,
             %io:format("req done.\n"),
             ?MODULE:after_response(Body, Req);
