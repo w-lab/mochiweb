@@ -42,36 +42,28 @@ init_hook_modules(undefined) ->
 	ok;
 init_hook_modules([]) ->
 	ok;
-init_hook_modules([H|T]) ->
-	case code:ensure_loaded(H) of
+init_hook_modules([{ModName, Args}|T]) when is_list(Args) ->
+	case code:ensure_loaded(ModName) of
 		{module, Module} ->
-			Loaded = case erlang:get(?SAVE_HOOK_MODULES) of
-				undefined ->
-					[];
-				Cached ->
-					Cached
-			end,
-			erlang:put(?SAVE_HOOK_MODULES, [Module | Loaded]),
-			case Module:init() of
-                            ok ->
+			case Module:init(Args) of
+                {ok, Desc} ->
+        			Loaded = case erlang:get(?SAVE_HOOK_MODULES) of
+        				undefined ->
+        					[];
+        				Cached ->
+        					Cached
+        			end,
+			        erlang:put(?SAVE_HOOK_MODULES, [{Module, Desc} | Loaded]),
 			        init_hook_modules(T);
-                            InitError ->
-                                InitError
-                        end;
+                InitError ->
+                    InitError
+            end;
 		Error ->
 			Error
 	end.
 
 set_hook_modules(L) when is_list(L) ->
-        ModAtoms = lists:map(fun(Name) -> 
-            case is_list(Name) of
-                true ->
-                    list_to_atom(Name);
-                _Else ->
-                    Name
-            end
-         end, L),
-	erlang:put(?SAVE_HOOK_MODULES, ModAtoms);
+	erlang:put(?SAVE_HOOK_MODULES, L);
 set_hook_modules(_L) ->
 	erlang:put(?SAVE_HOOK_MODULES, []).
 
@@ -84,8 +76,8 @@ on_new_request_hook_modules(_Req, []) ->
     none;
 on_new_request_hook_modules(_Req, undefined) ->
     none;
-on_new_request_hook_modules(Req, [Module|T]) ->
-    case Module:on_new_request(Req) of
+on_new_request_hook_modules(Req, [{Module, Desc}|T]) ->
+    case Module:on_new_request(Desc, Req) of
         done ->
             done;
         _Other ->
@@ -98,19 +90,19 @@ on_respond_hook_modules(_Req, ResponseHeaders, _Body, []) ->
     ResponseHeaders;
 on_respond_hook_modules(_Req, ResponseHeaders, _Body, undefined) ->
     ResponseHeaders;
-on_respond_hook_modules(Req, ResponseHeaders, Body, [Module|T]) ->
-    NewResHead = Module:on_respond(Req, ResponseHeaders, Body),
+on_respond_hook_modules(Req, ResponseHeaders, Body, [{Module, Desc}|T]) ->
+    NewResHead = Module:on_respond(Desc, Req, ResponseHeaders, Body),
     on_respond_hook_modules(Req, NewResHead, Body, T).
 
 terminate_hook_modules() ->
-	terminate_hook_modules(erlang:get(?SAVE_HOOK_MODULES)).
+	terminate_hook_modules(get_hook_modules()).
 
 terminate_hook_modules([]) ->
 	ok;
 terminate_hook_modules(undefined) ->
 	ok;
-terminate_hook_modules([Module|T]) ->
-	Module:terminate(),
+terminate_hook_modules([{Module, Desc}|T]) ->
+	Module:terminate(Desc),
 	terminate_hook_modules(T).
 
 %% @spec new_request({Socket, Request, Headers}) -> MochiWebRequest
