@@ -21,7 +21,7 @@
         expire                = 0  :: integer(), % specified per sec
         max_content_len       = 0  :: integer(), % No cache if Content-Length of a response header was &gt this
         cachable_content_type = [] :: list(),    % like ["image/png", "image/gif", "image/jpeg"]
-        cachable_path_pattern = [] :: list()     % compiled regular expressions like
+        cachable_path_pattern = [] :: list()     % compiled regular expressions
 }).
 
 init(Args) when is_list(Args) ->
@@ -29,19 +29,20 @@ init(Args) when is_list(Args) ->
 
 init([{expire, Expire}|T], Con) when is_integer(Expire) andalso Expire > 0 ->
     init(T, Con#condition{expire=Expire});
-init([{max_content_len, Len}|T], Con) when is_integer(Len) andalso Len > 8192 ->
+init([{max_content_len, Len}|T], Con) when is_integer(Len) andalso Len > 0 ->
     init(T, Con#condition{max_content_len=Len});
 init([{cachable_content_type, CT}|T], Con) when is_list(CT) ->
-    NewCon = Con#condition{cachable_content_type = [CT|Con#condition.cachable_content_type]},
-    init(T, NewCon);
-init([{cachable_path_pattern, Pattern}|T], Con) when is_list(Pattern) ->
-    case re:compile(Pattern) of
-        {ok, MP} ->
-            NewCon = Con#condition{cachable_path_pattern = [MP|Con#condition.cachable_path_pattern]},
-            init(T, NewCon);
-        Error ->
-            Error
-    end;
+    init(T, Con#condition{cachable_content_type = CT});
+init([{cachable_path_pattern, Patterns}|T], Con) when is_list(Patterns) ->
+    CompiledList = lists:foldl(fun(P, Acc) ->
+        case re:compile(P) of
+            {ok, MP} ->
+                [MP|Acc];
+            _Error ->
+                Acc
+        end
+    end, [], Patterns),
+    init(T, Con#condition{cachable_path_pattern = CompiledList});
 init([], Con) ->
     case application:start(ecache_app) of
         ok ->
@@ -147,7 +148,7 @@ month2rfc1123(M) ->
     end.
 
 sec2rfc1123date(Sec) ->
-% Don't use http_util:rfc1123 because leaving some heap memories will result in causing GC frequently.
+% Don't use http_util:rfc1123. In this func, There is no error handling for `local_time_to_universe` so badmatch can occur
 % httpd_util:rfc1123_date(calendar:universal_time_to_local_time(calendar:gregorian_seconds_to_datetime(Sec))).
     {{Y,M,D},{H,MI,S}} = calendar:gregorian_seconds_to_datetime(Sec),
     Mon = month2rfc1123(M),
@@ -168,16 +169,6 @@ on_new_request(
     #condition{expire=0}, _Req) ->
     erlang:put(?MOD_CACHE_IS_CACHABLE_KEY, false),
     none;
-on_new_request(
-    #condition{cachable_content_type=CCs} = Con, Req) when is_list(CCs) andalso length(CCs) > 0->
-    case lists:member(Req:get_header_value("Content-Type"), CCs) of
-        true ->
-            NewCon = Con#condition{cachable_content_type=[]},
-            on_new_request(NewCon, Req);
-        false ->
-            erlang:put(?MOD_CACHE_IS_CACHABLE_KEY, false),
-            none
-    end;
 on_new_request(
     #condition{cachable_path_pattern=CPs} = Con, Req) when is_list(CPs) andalso length(CPs) > 0->
     case lists:any(is_cachable_path(Req:get(path)), CPs) of
@@ -204,8 +195,9 @@ on_new_request(#condition{expire=Expire}, Req) ->
                     none;
                 false ->
                     LastModified = sec2rfc1123date(Cached#cache.mtime),
-                    Heads = [{"Date", LastModified}, 
-                        {"Cache-Control", "max-age=" ++ integer_to_list(Expire - Diff)}],
+                    Date = sec2rfc1123date(Now),
+                    Heads = [{"Last-Modified", LastModified}, {"Date", Date}, {"Age", integer_to_list(Diff)},
+                        {"Cache-Control", "max-age=" ++ integer_to_list(Expire)}],
                     case Req:get_header_value("if-modified-since") of
                         LastModified ->
                             Req:respond({304, mochiweb_headers:make(Heads), ""});
@@ -216,12 +208,21 @@ on_new_request(#condition{expire=Expire}, Req) ->
             end
     end.
 
-on_respond(#condition{expire=Expire}, Req, ResponseHeaders, Body) ->
+on_respond(
+    #condition{cachable_content_type=CCs} = Con, Req, ResponseHeaders, Body) when is_list(CCs) andalso length(CCs) > 0->
+    case lists:member(mochiweb_headers:get_value("Content-Type", ResponseHeaders), CCs) of
+        true ->
+            NewCon = Con#condition{cachable_content_type=[]},
+            on_respond(NewCon, Req, ResponseHeaders, Body);
+        false ->
+            ResponseHeaders
+    end;
+on_respond(#condition{expire=Expire, max_content_len=MaxLen}, Req, ResponseHeaders, Body) ->
     Cachable = case iolist_size(Body) of
         0 ->
             false;
-        _HasBody ->
-            erlang:get(?MOD_CACHE_IS_CACHABLE_KEY) andalso is_cachable(Req)
+        BodySize ->
+            BodySize < MaxLen andalso erlang:get(?MOD_CACHE_IS_CACHABLE_KEY) andalso is_cachable(Req)
     end,
     case Cachable of
         false ->
@@ -242,7 +243,9 @@ on_respond(#condition{expire=Expire}, Req, ResponseHeaders, Body) ->
                         body = Body
                     }),
                     ecache_server:set(Key, BinVal),
-                    mochiweb_headers:enter("Cache-Control", "max-age=" ++ integer_to_list(Expire), ResponseHeaders);
+                    LastModified = sec2rfc1123date(DateSec),
+                    NewRes = mochiweb_headers:enter("Last-Modified", LastModified, ResponseHeaders),
+                    mochiweb_headers:enter("Cache-Control", "max-age=" ++ integer_to_list(Expire), NewRes);
                 _Else ->
                     ResponseHeaders
             end

@@ -28,8 +28,18 @@
 -define(LOOP, {?MODULE, loop}).
 
 start(Options = [{port, _Port}]) ->
-    mochiweb_http:start([{name, ?MODULE}, {acceptor_pool_size, 32}, {loop, ?LOOP}, {hook_modules, [mochiweb_mod_cache]} | Options]).
-%    mochiweb_http:start([{name, ?MODULE}, {loop, ?LOOP} | Options]).
+    mochiweb_http:start([{name, ?MODULE}, 
+                    {acceptor_pool_size, 32}, 
+                    {loop, ?LOOP},
+                    {hook_modules, 
+                            [{mochiweb_mod_cache, 
+                                            [
+                                                    {expire, 60},
+                                                    {max_content_len, 1024 * 1024},
+                                                    {cachable_content_type,["text/plain"]},
+                                                    {cachable_path_pattern,["/img/.+", "/css/.+"]}
+                                            ]}
+                                    ]} | Options]).
 
 loop(Req) ->
     Path = Req:get(path),

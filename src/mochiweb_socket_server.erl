@@ -35,11 +35,11 @@
 -define(is_old_state(State), not is_record(State, mochiweb_socket_server)).
 
 start_link(Options) ->
-    io:format("options in sock:~p\n", [Options]),
+    %io:format("options in sock:~p\n", [Options]),
     start_server(start_link, parse_options(Options)).
 
 start(Options) ->
-    io:format("options in sock:~p\n", [Options]),
+    %io:format("options in sock:~p\n", [Options]),
     case lists:keytake(link, 1, Options) of
         {value, {_Key, false}, Options1} ->
             start_server(start, parse_options(Options1));
@@ -166,7 +166,7 @@ ipv6_supported() ->
 
 init(State=#mochiweb_socket_server{ip=Ip, port=Port, backlog=Backlog, nodelay=NoDelay, hook_modules=HookMods}) ->
     process_flag(trap_exit, true),
-    io:format("state:~p\n", [State]),
+    %io:format("state:~p\n", [State]),
     BaseOpts = [binary,
                 {reuseaddr, true},
                 {packet, 0},
