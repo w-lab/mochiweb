@@ -210,28 +210,30 @@ on_new_request(#condition{expire=Expire}, Req) ->
 
 on_respond(
     #condition{cachable_content_type=CCs} = Con, Req, ResponseHeaders, Body) when is_list(CCs) andalso length(CCs) > 0->
-    case lists:member(mochiweb_headers:get_value("Content-Type", ResponseHeaders), CCs) of
+    HResponse = mochiweb_headers:make(ResponseHeaders),
+    case lists:member(mochiweb_headers:get_value("Content-Type", HResponse), CCs) of
         true ->
             NewCon = Con#condition{cachable_content_type=[]},
-            on_respond(NewCon, Req, ResponseHeaders, Body);
+            on_respond(NewCon, Req, HResponse, Body);
         false ->
-            ResponseHeaders
+            HResponse
     end;
 on_respond(#condition{expire=Expire, max_content_len=MaxLen}, Req, ResponseHeaders, Body) ->
     Cachable = case iolist_size(Body) of
         0 ->
             false;
         BodySize ->
-            BodySize < MaxLen andalso erlang:get(?MOD_CACHE_IS_CACHABLE_KEY) andalso is_cachable(Req)
+            Req:get(method) == 'GET' andalso BodySize < MaxLen andalso erlang:get(?MOD_CACHE_IS_CACHABLE_KEY) andalso is_cachable(Req)
     end,
     case Cachable of
         false ->
             ResponseHeaders;
         true ->
+            HResponse = mochiweb_headers:make(ResponseHeaders),
             Key = Req:get(path),
-            case mochiweb_headers:get_value("Cache-Control", ResponseHeaders) of
+            case mochiweb_headers:get_value("Cache-Control", HResponse) of
                 undefined ->
-                    DateSec = case mochiweb_headers:get_value("Date", ResponseHeaders) of
+                    DateSec = case mochiweb_headers:get_value("Date", HResponse) of
                         undefined ->
                             now2sec();
                         HeadDate ->
@@ -239,15 +241,15 @@ on_respond(#condition{expire=Expire, max_content_len=MaxLen}, Req, ResponseHeade
                     end,
                     BinVal = term_to_binary(#cache{
                         mtime = DateSec,
-                        content_type = mochiweb_headers:get_value("Content-Type", ResponseHeaders),
+                        content_type = mochiweb_headers:get_value("Content-Type", HResponse),
                         body = Body
                     }),
                     ecache_server:set(Key, BinVal),
                     LastModified = sec2rfc1123date(DateSec),
-                    NewRes = mochiweb_headers:enter("Last-Modified", LastModified, ResponseHeaders),
+                    NewRes = mochiweb_headers:enter("Last-Modified", LastModified, HResponse),
                     mochiweb_headers:enter("Cache-Control", "max-age=" ++ integer_to_list(Expire), NewRes);
                 _Else ->
-                    ResponseHeaders
+                    HResponse
             end
     end.
 
