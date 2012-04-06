@@ -179,7 +179,16 @@ on_new_request(
             erlang:put(?MOD_CACHE_IS_CACHABLE_KEY, false),
             none
     end;
-on_new_request(#condition{expire=Expire}, Req) ->
+on_new_request(Con, Req) ->
+    case Req:get(method) == 'GET' of
+        true ->
+            do_hook_request(Con, Req);
+        false ->
+            erlang:put(?MOD_CACHE_IS_CACHABLE_KEY, false),
+            none
+    end.
+
+do_hook_request(#condition{expire=Expire}, Req) ->
     erlang:put(?MOD_CACHE_IS_CACHABLE_KEY, true),
     Key = Req:get(path),
     case ecache_server:get(Key) of
