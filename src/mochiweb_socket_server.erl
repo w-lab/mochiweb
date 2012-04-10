@@ -211,6 +211,8 @@ listen(Port, Opts, State=#mochiweb_socket_server{ssl=Ssl, ssl_opts=SslOpts}) ->
             {stop, Reason}
     end.
 
+do_get(hook_modules, #mochiweb_socket_server{hook_modules=HookMods}) ->
+    HookMods;
 do_get(port, #mochiweb_socket_server{port=Port}) ->
     Port;
 do_get(active_sockets, #mochiweb_socket_server{active_sockets=ActiveSockets}) ->
