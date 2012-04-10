@@ -11,7 +11,7 @@
 -export([ensure_started/1]).
 -export([init_hook_modules/1, set_hook_modules/1, get_hook_modules/0,
          on_new_request_hook_modules/1, on_new_request_hook_modules/2,
-         on_respond_hook_modules/3, on_respond_hook_modules/4, on_purge_hook_modules/1,
+         on_respond_hook_modules/3, on_respond_hook_modules/4, on_purge_hook_modules/1, on_purge_hook_modules/2,
          terminate_hook_modules/0, terminate_hook_modules/1]).
 
 -define(SAVE_HOOK_MODULES, mochiweb_hook_modules).
