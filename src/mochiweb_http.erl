@@ -17,17 +17,35 @@
 -define(DEFAULTS, [{name, ?MODULE},
                    {port, 8888}]).
 
+parse_hook_modules(Options) ->
+    case proplists:lookup(hook_modules, Options) of
+        {hook_modules, HookMods} ->
+            case mochiweb:init_hook_modules(HookMods) of
+                ok ->
+                     [{hook_modules, mochiweb:get_hook_modules()} | proplists:delete(hook_modules, Options)];
+                _Error ->
+                    proplists:delete(hook_modules, Options)
+            end;
+        none ->
+            Options
+    end.
+
 parse_options(Options) ->
-    {loop, HttpLoop} = proplists:lookup(loop, Options),
+    Options0 = parse_hook_modules(Options),
+    {loop, HttpLoop} = proplists:lookup(loop, Options0),
     Loop = {?MODULE, loop, [HttpLoop]},
-    Options1 = [{loop, Loop} | proplists:delete(loop, Options)],
+    Options1 = [{loop, Loop} | proplists:delete(loop, Options0)],
+    io:format("parsed: ~p~n",[Options1]),
     mochilists:set_defaults(?DEFAULTS, Options1).
 
 stop() ->
+    mochiweb:terminate_hook_modules(),
     mochiweb_socket_server:stop(?MODULE).
 
 stop(Name) ->
+    mochiweb:terminate_hook_modules(),
     mochiweb_socket_server:stop(Name).
+
 
 %% @spec start(Options) -> ServerRet
 %%     Options = [option()]

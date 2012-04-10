@@ -11,7 +11,7 @@
 -export([ensure_started/1]).
 -export([init_hook_modules/1, set_hook_modules/1, get_hook_modules/0,
          on_new_request_hook_modules/1, on_new_request_hook_modules/2,
-         on_respond_hook_modules/3, on_respond_hook_modules/4,
+         on_respond_hook_modules/3, on_respond_hook_modules/4, on_purge_hook_modules/1,
          terminate_hook_modules/0, terminate_hook_modules/1]).
 
 -define(SAVE_HOOK_MODULES, mochiweb_hook_modules).
@@ -83,6 +83,16 @@ on_new_request_hook_modules(Req, [{Module, Desc}|T]) ->
         _Other ->
             on_new_request_hook_modules(Req,T)
     end.
+
+on_purge_hook_modules(Path) ->
+    on_purge_hook_modules(Path, get_hook_modules()).
+on_purge_hook_modules(_Path, []) ->
+    void;
+on_purge_hook_modules(_Path, undefined) ->
+    void;
+on_purge_hook_modules(Path, [{Module, Desc}|T]) ->
+    Module:on_purge(Desc, Path),
+    on_purge_hook_modules(Path, T).
 
 on_respond_hook_modules(Req, ResponseHeaders, Body) ->
     on_respond_hook_modules(Req, ResponseHeaders, Body, get_hook_modules()).

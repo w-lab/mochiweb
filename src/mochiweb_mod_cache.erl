@@ -6,7 +6,7 @@
 -module(mochiweb_mod_cache).
 -author('yoshiyuki.kanno@stoic.co.jp').
 
--export([init/1, on_new_request/2, on_respond/4, terminate/1]).
+-export([init/1, on_new_request/2, on_purge/2, on_respond/4, terminate/1]).
 
 %-define(MOD_CACHE_DEF_EXPIRE, 60).
 -define(MOD_CACHE_IS_CACHABLE_KEY, "mochiweb_mod_cache_is_cachable").
@@ -216,6 +216,10 @@ do_hook_request(#condition{expire=Expire}, Req) ->
                     done
             end
     end.
+
+on_purge(_Con, Path) when is_list(Path) -> 
+    io:format("purge paht:~p~n",[Path]),
+    ecache_server:delete(Path).
 
 on_respond(
     #condition{cachable_content_type=CCs} = Con, Req, ResponseHeaders, Body) when is_list(CCs) andalso length(CCs) > 0->
