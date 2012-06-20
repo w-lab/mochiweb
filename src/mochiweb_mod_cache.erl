@@ -21,7 +21,8 @@
         expire                = 0  :: integer(), % specified per sec
         max_content_len       = 0  :: integer(), % No cache if Content-Length of a response header was &gt this
         cachable_content_type = [] :: list(),    % like ["image/png", "image/gif", "image/jpeg"]
-        cachable_path_pattern = [] :: list()     % compiled regular expressions
+        cachable_path_pattern = [] :: list(),    % compiled regular expressions
+        key                   = [] :: list()     % global uniq key
 }).
 
 init(Args) when is_list(Args) ->
@@ -171,26 +172,34 @@ on_new_request(
     none;
 on_new_request(
     #condition{cachable_path_pattern=CPs} = Con, Req) when is_list(CPs) andalso length(CPs) > 0->
-    case lists:any(is_cachable_path(Req:get(path)), CPs) of
+    [Host|_] = string:tokens(Req:get_header_value("host"), ":"),
+    Key = leo_http:key(Host, Req:get(path)),
+    case lists:any(is_cachable_path(Key), CPs) of
         true ->
-            NewCon = Con#condition{cachable_path_pattern=[]},
+            NewCon = Con#condition{cachable_path_pattern=[], key = Key},
             on_new_request(NewCon, Req);
         false ->
             erlang:put(?MOD_CACHE_IS_CACHABLE_KEY, false),
             none
     end;
-on_new_request(Con, Req) ->
+on_new_request(#condition{key=Key} = Con, Req) ->
     case Req:get(method) == 'GET' of
         true ->
-            do_hook_request(Con, Req);
+            NewCon = case Key of
+                [] ->
+                    [Host|_] = string:tokens(Req:get_header_value("host"), ":"),
+                    Con#condition{key = leo_http:key(Host, Req:get(path))};
+                _ ->
+                    Con
+            end,
+            do_hook_request(NewCon, Req);
         false ->
             erlang:put(?MOD_CACHE_IS_CACHABLE_KEY, false),
             none
     end.
 
-do_hook_request(#condition{expire=Expire}, Req) ->
+do_hook_request(#condition{expire=Expire, key=Key}, Req) ->
     erlang:put(?MOD_CACHE_IS_CACHABLE_KEY, true),
-    Key = Req:get(path),
     case ecache_server:get(Key) of
         undefined ->
             none;
@@ -243,7 +252,8 @@ on_respond(#condition{expire=Expire, max_content_len=MaxLen}, Req, ResponseHeade
             ResponseHeaders;
         true ->
             HResponse = mochiweb_headers:make(ResponseHeaders),
-            Key = Req:get(path),
+            [Host|_] = string:tokens(Req:get_header_value("host"), ":"),
+            Key = leo_http:key(Host, Req:get(path)),
             case mochiweb_headers:get_value("Cache-Control", HResponse) of
                 undefined ->
                     DateSec = case mochiweb_headers:get_value("Date", HResponse) of
