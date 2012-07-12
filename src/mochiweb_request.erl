@@ -9,7 +9,7 @@
 -include_lib("kernel/include/file.hrl").
 -include("internal.hrl").
 
--define(QUIP, "Any of you quaids got a smint?").
+-define(QUIP, "").
 
 -export([get_header_value/1, get_primary_header_value/1, get/1, dump/0]).
 -export([send/1, recv/1, recv/2, recv_body/0, recv_body/1, stream_body/3]).
