@@ -6,7 +6,7 @@
 -module(mochiweb_response, [Request, Code, Headers]).
 -author('bob@mochimedia.com').
 
--define(QUIP, "Any of you quaids got a smint?").
+-define(QUIP, "").
 
 -export([get_header_value/1, get/1, dump/0]).
 -export([send/1, write_chunk/1]).

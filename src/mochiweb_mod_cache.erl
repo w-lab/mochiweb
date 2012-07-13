@@ -8,22 +8,23 @@
 
 -export([init/1, on_new_request/2, on_purge/2, on_respond/4, terminate/1]).
 
-%-define(MOD_CACHE_DEF_EXPIRE, 60).
+%% -define(MOD_CACHE_DEF_EXPIRE, 60).
 -define(MOD_CACHE_IS_CACHABLE_KEY, "mochiweb_mod_cache_is_cachable").
 
 -record(cache, {
-        mtime        = 0    :: integer(), % gregorian_seconds
-        content_type = ""   :: list(),    % from a Content-Type header
-        body         = <<>> :: binary()
-}).
+          mtime        = 0    :: integer(), %% gregorian_seconds
+          checksum     = 0    :: integer(), %% checksum (ETag - MD5)
+          content_type = ""   :: list(),    %% from a Content-Type header
+          body         = <<>> :: binary()
+         }).
 
 -record(condition, {
-        expire                = 0  :: integer(), % specified per sec
-        max_content_len       = 0  :: integer(), % No cache if Content-Length of a response header was &gt this
-        cachable_content_type = [] :: list(),    % like ["image/png", "image/gif", "image/jpeg"]
-        cachable_path_pattern = [] :: list(),    % compiled regular expressions
-        key                   = [] :: list()     % global uniq key
-}).
+          expire                = 0  :: integer(), %% specified per sec
+          max_content_len       = 0  :: integer(), %% No cache if Content-Length of a response header was &gt this
+          cachable_content_type = [] :: list(),    %% like ["image/png", "image/gif", "image/jpeg"]
+          cachable_path_pattern = [] :: list(),    %% compiled regular expressions
+          key                   = [] :: list()     %% global uniq key
+         }).
 
 init(Args) when is_list(Args) ->
     init(Args, #condition{}).
@@ -36,13 +37,13 @@ init([{cachable_content_type, CT}|T], Con) when is_list(CT) ->
     init(T, Con#condition{cachable_content_type = CT});
 init([{cachable_path_pattern, Patterns}|T], Con) when is_list(Patterns) ->
     CompiledList = lists:foldl(fun(P, Acc) ->
-        case re:compile(P) of
-            {ok, MP} ->
-                [MP|Acc];
-            _Error ->
-                Acc
-        end
-    end, [], Patterns),
+                                       case re:compile(P) of
+                                           {ok, MP} ->
+                                               [MP|Acc];
+                                           _Error ->
+                                               Acc
+                                       end
+                               end, [], Patterns),
     init(T, Con#condition{cachable_path_pattern = CompiledList});
 init([], Con) ->
     case application:start(ecache_app) of
@@ -96,7 +97,7 @@ is_cachable(Req) ->
             PG= Req:get_header_value("Pragma"),
             is_cachable_pg(PG);
         false ->
-            false        
+            false
     end.
 
 now2sec() ->
@@ -149,29 +150,29 @@ month2rfc1123(M) ->
     end.
 
 sec2rfc1123date(Sec) ->
-% Don't use http_util:rfc1123. In this func, There is no error handling for `local_time_to_universe` so badmatch can occur
-% httpd_util:rfc1123_date(calendar:universal_time_to_local_time(calendar:gregorian_seconds_to_datetime(Sec))).
+    %% Don't use http_util:rfc1123. In this func, There is no error handling for `local_time_to_universe` so badmatch can occur
+    %% httpd_util:rfc1123_date(calendar:universal_time_to_local_time(calendar:gregorian_seconds_to_datetime(Sec))).
     {{Y,M,D},{H,MI,S}} = calendar:gregorian_seconds_to_datetime(Sec),
     Mon = month2rfc1123(M),
     W = week2rfc1123(Y,M,D),
     lists:flatten(io_lib:format("~3s, ~2.10.0B ~3s ~4.10B ~2.10.0B:~2.10.0B:~2.10.0B GMT", [W, D, Mon, Y, H, MI, S])).
 
 is_cachable_path(Path) ->
-    fun(MP) -> 
-        case re:run(Path, MP) of
-            {match, _Cap} ->
-                true;
-            _Else ->
-                false
-        end
+    fun(MP) ->
+            case re:run(Path, MP) of
+                {match, _Cap} ->
+                    true;
+                _Else ->
+                    false
+            end
     end.
 
 on_new_request(
-    #condition{expire=0}, _Req) ->
+  #condition{expire=0}, _Req) ->
     erlang:put(?MOD_CACHE_IS_CACHABLE_KEY, false),
     none;
 on_new_request(
-    #condition{cachable_path_pattern=CPs} = Con, Req) when is_list(CPs) andalso length(CPs) > 0->
+  #condition{cachable_path_pattern=CPs} = Con, Req) when is_list(CPs) andalso length(CPs) > 0->
     [Host|_] = string:tokens(Req:get_header_value("host"), ":"),
     Key = leo_http:key(Host, Req:get(path)),
     case lists:any(is_cachable_path(Key), CPs) of
@@ -186,12 +187,12 @@ on_new_request(#condition{key=Key} = Con, Req) ->
     case Req:get(method) == 'GET' of
         true ->
             NewCon = case Key of
-                [] ->
-                    [Host|_] = string:tokens(Req:get_header_value("host"), ":"),
-                    Con#condition{key = leo_http:key(Host, Req:get(path))};
-                _ ->
-                    Con
-            end,
+                         [] ->
+                             [Host|_] = string:tokens(Req:get_header_value("host"), ":"),
+                             Con#condition{key = leo_http:key(Host, Req:get(path))};
+                         _ ->
+                             Con
+                     end,
             do_hook_request(NewCon, Req);
         false ->
             erlang:put(?MOD_CACHE_IS_CACHABLE_KEY, false),
@@ -204,34 +205,44 @@ do_hook_request(#condition{expire=Expire, key=Key}, Req) ->
         undefined ->
             none;
         BinCached ->
-            Cached = binary_to_term(BinCached),
+            #cache{mtime        = MTime,
+                   content_type = ContentType,
+                   checksum     = Checksum,
+                   body         = Body
+                  } = binary_to_term(BinCached),
+
             Now = now2sec(),
-            Diff = Now - Cached#cache.mtime,
+            Diff = Now - MTime,
             case Diff > Expire of
                 true ->
                     ecache_server:delete(Key),
                     none;
                 false ->
-                    LastModified = sec2rfc1123date(Cached#cache.mtime),
-                    Date = sec2rfc1123date(Now),
-                    Heads = [{"Last-Modified", LastModified}, {"Date", Date}, {"Age", integer_to_list(Diff)},
-                        {"Cache-Control", "max-age=" ++ integer_to_list(Expire)}],
+                    LastModified = sec2rfc1123date(MTime),
+                    Date  = sec2rfc1123date(Now),
+                    Heads = [{"Server",        "LeoFS"},
+                             {"Last-Modified", LastModified},
+                             {"Date",          Date},
+                             {"Age",           integer_to_list(Diff)},
+                             {"ETag",          leo_hex:integer_to_hex(Checksum)},
+                             {"Cache-Control", "max-age=" ++ integer_to_list(Expire)}],
+
                     case Req:get_header_value("if-modified-since") of
                         LastModified ->
                             Req:respond({304, mochiweb_headers:make(Heads), ""});
                         _NotConditional ->
-                            Req:ok({Cached#cache.content_type, Heads, Cached#cache.body})
+                            Req:ok({ContentType, Heads, Body})
                     end,
                     done
             end
     end.
 
-on_purge(_Con, Path) when is_list(Path) -> 
+on_purge(_Con, Path) when is_list(Path) ->
     io:format("purge paht:~p~n",[Path]),
     ecache_server:delete(Path).
 
 on_respond(
-    #condition{cachable_content_type=CCs} = Con, Req, ResponseHeaders, Body) when is_list(CCs) andalso length(CCs) > 0->
+  #condition{cachable_content_type=CCs} = Con, Req, ResponseHeaders, Body) when is_list(CCs) andalso length(CCs) > 0->
     HResponse = mochiweb_headers:make(ResponseHeaders),
     case lists:member(mochiweb_headers:get_value("Content-Type", HResponse), CCs) of
         true ->
@@ -242,37 +253,46 @@ on_respond(
     end;
 on_respond(#condition{expire=Expire, max_content_len=MaxLen}, Req, ResponseHeaders, Body) ->
     Cachable = case iolist_size(Body) of
-        0 ->
-            false;
-        BodySize ->
-            Req:get(method) == 'GET' andalso BodySize < MaxLen andalso erlang:get(?MOD_CACHE_IS_CACHABLE_KEY) andalso is_cachable(Req)
-    end,
+                   0 ->
+                       false;
+                   BodySize ->
+                       Req:get(method) == 'GET' andalso
+                           BodySize < MaxLen andalso
+                           erlang:get(?MOD_CACHE_IS_CACHABLE_KEY) andalso
+                           is_cachable(Req)
+               end,
+
     case Cachable of
         false ->
             ResponseHeaders;
         true ->
-            HResponse = mochiweb_headers:make(ResponseHeaders),
+            Resp0 = mochiweb_headers:make(ResponseHeaders),
+
             [Host|_] = string:tokens(Req:get_header_value("host"), ":"),
             Key = leo_http:key(Host, Req:get(path)),
-            case mochiweb_headers:get_value("Cache-Control", HResponse) of
+
+            case mochiweb_headers:get_value("Cache-Control", Resp0) of
                 undefined ->
-                    DateSec = case mochiweb_headers:get_value("Date", HResponse) of
-                        undefined ->
-                            now2sec();
-                        HeadDate ->
-                            calendar:datetime_to_gregorian_seconds(httpd_util:convert_request_date(HeadDate))
-                    end,
-                    BinVal = term_to_binary(#cache{
-                        mtime = DateSec,
-                        content_type = mochiweb_headers:get_value("Content-Type", HResponse),
-                        body = Body
-                    }),
-                    ecache_server:set(Key, BinVal),
-                    LastModified = sec2rfc1123date(DateSec),
-                    NewRes = mochiweb_headers:enter("Last-Modified", LastModified, HResponse),
-                    mochiweb_headers:enter("Cache-Control", "max-age=" ++ integer_to_list(Expire), NewRes);
-                _Else ->
-                    HResponse
+                    DateSec = case mochiweb_headers:get_value("Date", Resp0) of
+                                  undefined ->
+                                      now2sec();
+                                  HeadDate ->
+                                      calendar:datetime_to_gregorian_seconds(httpd_util:convert_request_date(HeadDate))
+                              end,
+
+                    Bin = term_to_binary(
+                            #cache{mtime        = DateSec,
+                                   checksum     = leo_hex:hex_to_integer(leo_hex:binary_to_hex(erlang:md5(Body))),
+                                   content_type = mochiweb_headers:get_value("Content-Type", Resp0),
+                                   body         = Body}),
+                    _ = ecache_server:set(Key, Bin),
+
+                    Resp1 = mochiweb_headers:enter("Server", "LeoFS", Resp0),
+                    Resp2 = mochiweb_headers:enter("Last-Modified", sec2rfc1123date(DateSec), Resp1),
+                    Resp3 = mochiweb_headers:enter("Cache-Control", "max-age=" ++ integer_to_list(Expire), Resp2),
+                    Resp3;
+                _ ->
+                    Resp0
             end
     end.
 
