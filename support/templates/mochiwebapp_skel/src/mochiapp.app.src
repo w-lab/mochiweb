@@ -1,7 +1,7 @@
 %% -*- erlang -*-
 {application, {{appid}},
  [{description, "{{appid}}"},
-  {vsn, "{{version}}"},
+  {vsn, "0.9.1"},
   {modules, []},
   {registered, []},
   {mod, {'{{appid}}_app', []}},
