@@ -46,7 +46,7 @@ init([{cachable_path_pattern, Patterns}|T], Con) when is_list(Patterns) ->
                                end, [], Patterns),
     init(T, Con#condition{cachable_path_pattern = CompiledList});
 init([], Con) ->
-    case application:start(ecache_app) of
+    case application:start(ecache) of
         ok ->
             {ok, Con};
         Error ->
@@ -167,14 +167,22 @@ is_cachable_path(Path) ->
             end
     end.
 
+gen_key(Req) ->
+    EndPoints1 = case leo_s3_endpoint:get_endpoints() of
+                     {ok, EndPoints0} ->
+                         lists:map(fun({endpoint,EP,_}) -> EP end, EndPoints0);
+                     _ -> []
+                 end,
+    [Host|_] = string:tokens(Req:get_header_value("host"), ":"),
+    leo_http:key(EndPoints1, Host, Req:get(path)).
+
 on_new_request(
   #condition{expire=0}, _Req) ->
     erlang:put(?MOD_CACHE_IS_CACHABLE_KEY, false),
     none;
 on_new_request(
   #condition{cachable_path_pattern=CPs} = Con, Req) when is_list(CPs) andalso length(CPs) > 0->
-    [Host|_] = string:tokens(Req:get_header_value("host"), ":"),
-    Key = leo_http:key(Host, Req:get(path)),
+    Key = gen_key(Req),
     case lists:any(is_cachable_path(Key), CPs) of
         true ->
             NewCon = Con#condition{cachable_path_pattern=[], key = Key},
@@ -188,8 +196,7 @@ on_new_request(#condition{key=Key} = Con, Req) ->
         true ->
             NewCon = case Key of
                          [] ->
-                             [Host|_] = string:tokens(Req:get_header_value("host"), ":"),
-                             Con#condition{key = leo_http:key(Host, Req:get(path))};
+                             Con#condition{key = gen_key(Req)};
                          _ ->
                              Con
                      end,
@@ -238,7 +245,6 @@ do_hook_request(#condition{expire=Expire, key=Key}, Req) ->
     end.
 
 on_purge(_Con, Path) when is_list(Path) ->
-    io:format("purge paht:~p~n",[Path]),
     ecache_server:delete(Path).
 
 on_respond(
@@ -268,8 +274,7 @@ on_respond(#condition{expire=Expire, max_content_len=MaxLen}, Req, ResponseHeade
         true ->
             Resp0 = mochiweb_headers:make(ResponseHeaders),
 
-            [Host|_] = string:tokens(Req:get_header_value("host"), ":"),
-            Key = leo_http:key(Host, Req:get(path)),
+            Key = gen_key(Req),
 
             case mochiweb_headers:get_value("Cache-Control", Resp0) of
                 undefined ->
@@ -297,4 +302,4 @@ on_respond(#condition{expire=Expire, max_content_len=MaxLen}, Req, ResponseHeade
     end.
 
 terminate(_Con) ->
-    application:stop(ecache_app).
+    application:stop(ecache).
