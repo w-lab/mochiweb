@@ -231,7 +231,7 @@ do_hook_request(#condition{expire=Expire, key=Key}, Req) ->
                              {"Last-Modified", LastModified},
                              {"Date",          Date},
                              {"Age",           integer_to_list(Diff)},
-                             {"ETag",          leo_hex:integer_to_hex(Checksum)},
+                             {"ETag",          erlang:integer_to_list(Checksum, 16)},
                              {"Cache-Control", "max-age=" ++ integer_to_list(Expire)}],
 
                     case Req:get_header_value("if-modified-since") of
@@ -287,7 +287,7 @@ on_respond(#condition{expire=Expire, max_content_len=MaxLen}, Req, ResponseHeade
 
                     Bin = term_to_binary(
                             #cache{mtime        = DateSec,
-                                   checksum     = leo_hex:hex_to_integer(leo_hex:binary_to_hex(erlang:md5(Body))),
+                                   checksum     = leo_hex:binary_to_integer(erlang:md5(Body)),
                                    content_type = mochiweb_headers:get_value("Content-Type", Resp0),
                                    body         = Body}),
                     _ = ecache_server:set(Key, Bin),
